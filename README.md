@@ -1,1 +1,1 @@
-SlideGen
+ -- AI slideshow studioSlideGen
