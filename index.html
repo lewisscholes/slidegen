@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SlideGen -- AI Slideshow Studio</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{
+    --bg:#faf9f5; --side:#f0eee6; --card:#ffffff; --border:#e3e0d5;
+    --text:#1a1915; --muted:#6e6a5e; --accent:#d97757; --accent-dark:#c05f3f;
+    --user-bubble:#eae7dc; --ok:#3a8a5f; --err:#c0392b;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; background:var(--bg); color:var(--text); height:100vh; overflow:hidden;}
+  .app{display:flex; height:100vh;}
+
+  /* ---------- Sidebar ---------- */
+  .sidebar{width:260px; min-width:260px; background:var(--side); border-right:1px solid var(--border); display:flex; flex-direction:column; padding:14px;}
+  .logo{font-size:19px; font-weight:700; letter-spacing:-.3px; padding:4px 6px 14px; display:flex; align-items:center; gap:8px;}
+  .logo .dot{width:10px; height:10px; border-radius:50%; background:var(--accent); display:inline-block;}
+  .newchat{background:var(--accent); color:#fff; border:none; border-radius:10px; padding:10px 12px; font-size:14px; font-weight:600; cursor:pointer; width:100%;}
+  .newchat:hover{background:var(--accent-dark);}
+  .nav{margin:14px 0 6px; display:flex; flex-direction:column; gap:2px;}
+  .nav button{background:none; border:none; text-align:left; padding:8px 10px; border-radius:8px; font-size:14px; color:var(--text); cursor:pointer; width:100%;}
+  .nav button:hover{background:rgba(0,0,0,.05);}
+  .nav button.active{background:rgba(217,119,87,.14); color:var(--accent-dark); font-weight:600;}
+  .chatlist-label{font-size:11px; text-transform:uppercase; letter-spacing:.6px; color:var(--muted); padding:10px 10px 4px;}
+  .chatlist{flex:1; overflow-y:auto; display:flex; flex-direction:column; gap:2px;}
+  .chatitem{display:flex; align-items:center; border-radius:8px;}
+  .chatitem:hover{background:rgba(0,0,0,.05);}
+  .chatitem.active{background:rgba(0,0,0,.07);}
+  .chatitem span{flex:1; padding:7px 10px; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; cursor:pointer;}
+  .chatitem b{padding:4px 8px; cursor:pointer; color:var(--muted); font-weight:400; visibility:hidden;}
+  .chatitem:hover b{visibility:visible;}
+  .chatitem b:hover{color:var(--err);}
+
+  /* ---------- Main ---------- */
+  .main{flex:1; display:flex; flex-direction:column; min-width:0;}
+  .view{display:none; flex:1; min-height:0; flex-direction:column;}
+  .view.active{display:flex;}
+
+  /* ---------- Chat view ---------- */
+  .msgs{flex:1; overflow-y:auto; padding:26px 20px 10px;}
+  .msgs-inner{max-width:780px; margin:0 auto; display:flex; flex-direction:column; gap:18px;}
+  .empty{color:var(--muted); text-align:center; margin-top:12vh;}
+  .empty h2{font-size:24px; color:var(--text); margin-bottom:10px; font-weight:600;}
+  .empty p{font-size:14px; line-height:1.6; max-width:480px; margin:0 auto;}
+  .msg{display:flex; flex-direction:column;}
+  .msg.user{align-items:flex-end;}
+  .bubble{max-width:88%; font-size:14.5px; line-height:1.6; white-space:pre-wrap; word-wrap:break-word;}
+  .msg.user .bubble{background:var(--user-bubble); padding:10px 15px; border-radius:16px 16px 4px 16px;}
+  .msg.assistant .bubble{padding:2px 0;}
+  .refthumbs{display:flex; gap:6px; margin-top:8px; flex-wrap:wrap; justify-content:flex-end;}
+  .refthumbs img{height:64px; border-radius:8px; border:1px solid var(--border);}
+  .imggrid{display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:10px; margin-top:10px; max-width:100%;}
+  .imgcard{position:relative; border-radius:12px; overflow:hidden; border:1px solid var(--border); background:var(--card);}
+  .imgcard img{width:100%; display:block; aspect-ratio:2/3; object-fit:cover;}
+  .imgcard .dl{position:absolute; bottom:8px; right:8px; background:rgba(0,0,0,.65); color:#fff; border:none; border-radius:8px; padding:5px 10px; font-size:12px; cursor:pointer; opacity:0; transition:opacity .15s;}
+  .imgcard:hover .dl{opacity:1;}
+  .genstatus{color:var(--muted); font-size:13.5px; display:flex; align-items:center; gap:8px;}
+  .spinner{width:14px; height:14px; border:2px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin .8s linear infinite; display:inline-block;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+  .errtxt{color:var(--err); font-size:13.5px;}
+
+  /* ---------- Composer ---------- */
+  .composer-wrap{padding:10px 20px 18px;}
+  .composer{max-width:780px; margin:0 auto; background:var(--card); border:1px solid var(--border); border-radius:16px; padding:10px 12px; box-shadow:0 2px 10px rgba(0,0,0,.04);}
+  .attrow{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px;}
+  .attchip{position:relative;}
+  .attchip img{height:56px; border-radius:8px; border:1px solid var(--border); display:block;}
+  .attchip .x{position:absolute; top:-6px; right:-6px; background:#333; color:#fff; border:none; border-radius:50%; width:18px; height:18px; font-size:11px; cursor:pointer; line-height:1;}
+  .composer textarea{width:100%; border:none; outline:none; resize:none; font-size:14.5px; font-family:inherit; background:transparent; min-height:44px; max-height:180px; line-height:1.5;}
+  .ctrls{display:flex; align-items:center; gap:8px; margin-top:6px; flex-wrap:wrap;}
+  .ctrls .grow{flex:1;}
+  .iconbtn{background:none; border:1px solid var(--border); border-radius:9px; padding:6px 11px; font-size:13px; cursor:pointer; color:var(--text);}
+  .iconbtn:hover{background:var(--side);}
+  .ctrls select{border:1px solid var(--border); border-radius:9px; padding:6px 8px; font-size:13px; background:var(--card); color:var(--text); cursor:pointer;}
+  .modetoggle{display:flex; border:1px solid var(--border); border-radius:9px; overflow:hidden;}
+  .modetoggle button{border:none; background:none; padding:6px 12px; font-size:13px; cursor:pointer; color:var(--muted);}
+  .modetoggle button.on{background:var(--accent); color:#fff;}
+  .slidechk{display:flex; align-items:center; gap:5px; font-size:13px; color:var(--muted); cursor:pointer;}
+  .sendbtn{background:var(--accent); color:#fff; border:none; border-radius:10px; padding:8px 18px; font-size:14px; font-weight:600; cursor:pointer;}
+  .sendbtn:hover{background:var(--accent-dark);}
+  .sendbtn:disabled{opacity:.5; cursor:default;}
+  .hint{max-width:780px; margin:6px auto 0; font-size:11.5px; color:var(--muted); text-align:center;}
+
+  /* ---------- Library ---------- */
+  .libhead{padding:18px 24px 12px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:10px; flex-wrap:wrap;}
+  .libhead h2{font-size:18px; font-weight:700; margin-right:8px;}
+  .libhead select, .libhead input{border:1px solid var(--border); border-radius:9px; padding:7px 9px; font-size:13px; background:var(--card);}
+  .libgrid{flex:1; overflow-y:auto; padding:20px 24px; display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:14px; align-content:start;}
+  .libcard{background:var(--card); border:1px solid var(--border); border-radius:12px; overflow:hidden; display:flex; flex-direction:column;}
+  .libcard .imgwrap{position:relative;}
+  .libcard img{width:100%; aspect-ratio:2/3; object-fit:cover; display:block; cursor:pointer;}
+  .libcard .groupbadge{position:absolute; top:8px; left:8px; background:rgba(0,0,0,.6); color:#fff; font-size:11px; padding:3px 8px; border-radius:7px; cursor:pointer;}
+  .libmeta{padding:9px 10px; display:flex; flex-direction:column; gap:6px;}
+  .libmeta .prompt{font-size:11.5px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .libmeta select{border:1px solid var(--border); border-radius:7px; padding:4px 6px; font-size:12px; width:100%; background:#fff;}
+  .librow{display:flex; gap:6px;}
+  .librow button{flex:1; border:1px solid var(--border); background:none; border-radius:7px; padding:5px 0; font-size:12px; cursor:pointer;}
+  .librow button:hover{background:var(--side);}
+  .librow button.danger:hover{color:var(--err); border-color:var(--err);}
+
+  /* ---------- Settings / Autopilot ---------- */
+  .panel{max-width:640px; margin:40px auto; padding:0 24px; width:100%; overflow-y:auto;}
+  .panel h2{font-size:20px; margin-bottom:6px;}
+  .panel .sub{color:var(--muted); font-size:13.5px; margin-bottom:22px; line-height:1.5;}
+  .field{margin-bottom:16px;}
+  .field label{display:block; font-size:13px; font-weight:600; margin-bottom:6px;}
+  .field input, .field select{width:100%; border:1px solid var(--border); border-radius:9px; padding:9px 11px; font-size:14px; background:var(--card);}
+  .savebtn{background:var(--accent); color:#fff; border:none; border-radius:10px; padding:10px 22px; font-size:14px; font-weight:600; cursor:pointer;}
+  .notecard{background:var(--card); border:1px solid var(--border); border-radius:12px; padding:18px; font-size:13.5px; line-height:1.6; color:var(--muted);}
+
+  /* ---------- Toast / overlay ---------- */
+  .toast{position:fixed; bottom:24px; left:50%; transform:translateX(-50%); background:#222; color:#fff; padding:10px 18px; border-radius:10px; font-size:13.5px; opacity:0; transition:opacity .25s; pointer-events:none; z-index:99;}
+  .toast.show{opacity:1;}
+  .lightbox{position:fixed; inset:0; background:rgba(0,0,0,.8); display:none; align-items:center; justify-content:center; z-index:98; cursor:zoom-out;}
+  .lightbox img{max-width:88vw; max-height:88vh; border-radius:10px;}
+  .lightbox.show{display:flex;}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="sidebar">
+    <div class="logo"><span class="dot"></span>SlideGen</div>
+    <button class="newchat" onclick="newChat()">+ New chat</button>
+    <div class="nav">
+      <button id="nav-chat" class="active" onclick="navigate('chat')">Chat</button>
+      <button id="nav-library" onclick="navigate('library')">Image Library</button>
+      <button id="nav-autopilot" onclick="navigate('autopilot')">Autopilot</button>
+      <button id="nav-settings" onclick="navigate('settings')">Settings</button>
+    </div>
+    <div class="chatlist-label">Recent chats</div>
+    <div class="chatlist" id="chatlist"></div>
+  </div>
+
+  <div class="main">
+    <!-- CHAT -->
+    <div class="view active" id="view-chat">
+      <div class="msgs" id="msgs"><div class="msgs-inner" id="msgs-inner">
+        <div class="empty" id="empty">
+          <h2>What are we recreating today?</h2>
+          <p>Upload viral slideshow images and describe the transformation -- remove text, swap the model, change the room, keep the product. Use Slideshow mode to recreate a full sequence slide by slide.</p>
+        </div>
+      </div></div>
+      <div class="composer-wrap">
+        <div class="composer">
+          <div class="attrow" id="attrow" style="display:none;"></div>
+          <textarea id="input" placeholder="Describe the images you want... (Enter to send, Shift+Enter for new line)" onkeydown="composerKey(event)" oninput="autosize(this)"></textarea>
+          <div class="ctrls">
+            <button class="iconbtn" onclick="document.getElementById('file').click()">+ Images</button>
+            <input type="file" id="file" accept="image/*" multiple style="display:none" onchange="onAttach(this)">
+            <select id="preset" onchange="applyPreset(this)">
+              <option value="">Prompts...</option>
+              <option value="clean">Clean recreate (new model + background)</option>
+              <option value="flatlay">Flat-lay product photo</option>
+              <option value="lifestyle">Lifestyle scenario</option>
+              <option value="notext">Just remove the text</option>
+            </select>
+            <span class="grow"></span>
+            <div class="modetoggle">
+              <button id="mode-image" class="on" onclick="setMode('image')">Images</button>
+              <button id="mode-chat" onclick="setMode('chat')">Chat</button>
+            </div>
+            <select id="varcount" title="Variations per image">
+              <option value="1">1 var</option><option value="2">2 vars</option>
+              <option value="3">3 vars</option><option value="4">4 vars</option>
+              <option value="6">6 vars</option><option value="8">8 vars</option>
+              <option value="10">10 vars</option>
+            </select>
+            <label class="slidechk" title="Treat each uploaded image as a slide and recreate the full sequence">
+              <input type="checkbox" id="slideshow"> Slideshow mode
+            </label>
+            <button class="sendbtn" id="sendbtn" onclick="send()">Send</button>
+          </div>
+        </div>
+        <div class="hint">Images mode transforms/creates photos with GPT Image. Chat mode talks to GPT-4o like normal ChatGPT. Everything generated is auto-saved to the Library.</div>
+      </div>
+    </div>
+
+    <!-- LIBRARY -->
+    <div class="view" id="view-library">
+      <div class="libhead">
+        <h2>Image Library</h2>
+        <select id="f-product" onchange="loadLibrary()"><option value="">All products</option></select>
+        <select id="f-format" onchange="loadLibrary()"><option value="">All formats</option></select>
+        <input id="f-search" placeholder="Search prompt..." oninput="debounceLib()">
+        <button class="iconbtn" onclick="addTag('product')">+ Product tag</button>
+        <button class="iconbtn" onclick="addTag('format')">+ Format tag</button>
+        <span class="grow" style="flex:1"></span>
+        <button class="iconbtn" id="groupfilterbtn" style="display:none" onclick="clearGroupFilter()">Viewing 1 slideshow -- clear</button>
+        <button class="iconbtn" id="dlallbtn" style="display:none" onclick="dlGroup()">Download all</button>
+      </div>
+      <div class="libgrid" id="libgrid"></div>
+    </div>
+
+    <!-- AUTOPILOT -->
+    <div class="view" id="view-autopilot">
+      <div class="panel">
+        <h2>Autopilot</h2>
+        <div class="sub">Coming soon -- phase 2.</div>
+        <div class="notecard">
+          Planned: connect to Social1 scraped slideshows, automatically pick trending AI slideshows, run the clean-recreate pipeline on a schedule (e.g. one new slideshow every 10 minutes) and drop the results into the Library tagged and ready for CapCut. The database and library here are already structured to support it.
+        </div>
+      </div>
+    </div>
+
+    <!-- SETTINGS -->
+    <div class="view" id="view-settings">
+      <div class="panel">
+        <h2>Settings</h2>
+        <div class="sub">Your OpenAI API key is stored only in this browser (localStorage). It is never uploaded anywhere.</div>
+        <div class="field">
+          <label>OpenAI API key</label>
+          <input type="password" id="s-key" placeholder="sk-...">
+        </div>
+        <div class="field">
+          <label>Image size</label>
+          <select id="s-size">
+            <option value="1024x1536">Portrait 1024x1536 (TikTok)</option>
+            <option value="1024x1024">Square 1024x1024</option>
+            <option value="1536x1024">Landscape 1536x1024</option>
+            <option value="auto">Auto</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Image quality</label>
+          <select id="s-quality">
+            <option value="high">High</option>
+            <option value="medium">Medium (cheaper/faster)</option>
+            <option value="low">Low (drafts)</option>
+          </select>
+        </div>
+        <button class="savebtn" onclick="saveSettings()">Save settings</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+<div class="lightbox" id="lightbox" onclick="this.classList.remove('show')"><img id="lightbox-img"></div>
+
+<script type="text/template" id="app-script">
+// ---------------- CONSTANTS ----------------
+const SUPABASE_URL = 'https://vcrforlyuhapvkewsogq.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZjcmZvcmx5dWhhcHZrZXdzb2dxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAzODk4NzAsImV4cCI6MjA5NTk2NTg3MH0.lcFC5aJFUGYrj4iw8oJ8R1bci4y_-aYKyQg8v9zrMqQ';
+const BUCKET = 'genimages';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// ---------------- STATE ----------------
+let state = {
+  chatId: null,
+  attachments: [],   // {dataUrl, name}
+  mode: 'image',
+  groupFilter: null,
+  tags: [],
+  libDebounce: null
+};
+
+const PRESETS = {
+  clean: 'Recreate this image with absolutely no text, captions or watermarks. Keep the exact same product, but put it on a different model and in a completely different background/setting. Think about who would realistically buy and wear/use this product and use that kind of person as the model. Natural, casual phone-photo aesthetic like a real TikTok post -- not a studio shoot.',
+  flatlay: 'Create a clean flat-lay style photo of this exact same product, no text or captions, placed naturally in a new aesthetic setting (e.g. on a bed, desk or countertop with soft lighting). Casual phone-photo look, not studio.',
+  lifestyle: 'Recreate this image with no text. Same exact product, but show it being used in a realistic everyday scenario by a different person in a different location. Get creative with the scenario but keep it believable and native to TikTok.',
+  notext: 'Recreate this exact image but remove all text, captions and watermarks completely. Keep everything else -- product, model, background and composition -- as close to the original as possible.'
+};
+
+function settings(){
+  try { return JSON.parse(localStorage.getItem('sg_settings')||'{}'); } catch(e){ return {}; }
+}
+
+// ---------------- UTIL ----------------
+function el(id){ return document.getElementById(id); }
+function toast(msg){
+  const t = el('toast'); t.textContent = msg; t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'), 3000);
+}
+function esc(s){ const d=document.createElement('div'); d.textContent=s||''; return d.innerHTML; }
+function autosize(t){ t.style.height='auto'; t.style.height=Math.min(t.scrollHeight,180)+'px'; }
+function uuid(){ return crypto.randomUUID(); }
+async function dataUrlToBlob(u){ return await (await fetch(u)).blob(); }
+async function uploadBlob(path, blob){
+  const { error } = await sb.storage.from(BUCKET).upload(path, blob, { contentType: blob.type||'image/png', upsert:true });
+  if (error) throw new Error('Storage upload failed: '+error.message);
+  return sb.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
+}
+function openLightbox(url){ el('lightbox-img').src=url; el('lightbox').classList.add('show'); }
+
+// ---------------- NAV ----------------
+function navigate(tab){
+  ['chat','library','autopilot','settings'].forEach(t=>{
+    el('view-'+t).classList.toggle('active', t===tab);
+    el('nav-'+t).classList.toggle('active', t===tab);
+  });
+  if (tab==='library') loadLibrary();
+  if (tab==='settings') loadSettingsForm();
+}
+function setMode(m){
+  state.mode = m;
+  el('mode-image').classList.toggle('on', m==='image');
+  el('mode-chat').classList.toggle('on', m==='chat');
+}
+function applyPreset(sel){
+  if (!sel.value) return;
+  const t = el('input');
+  t.value = PRESETS[sel.value];
+  autosize(t); sel.value='';
+}
+function composerKey(e){
+  if (e.key==='Enter' && !e.shiftKey){ e.preventDefault(); send(); }
+}
+
+// ---------------- CHATS ----------------
+async function loadChats(){
+  const { data } = await sb.from('gen_chats').select('*').order('created_at',{ascending:false}).limit(50);
+  const list = el('chatlist'); list.innerHTML='';
+  (data||[]).forEach(c=>{
+    const d = document.createElement('div');
+    d.className = 'chatitem'+(c.id===state.chatId?' active':'');
+    d.innerHTML = '<span onclick="openChat(\''+c.id+'\')">'+esc(c.title)+'</span><b onclick="delChat(\''+c.id+'\')">x</b>';
+    list.appendChild(d);
+  });
+}
+function newChat(){
+  state.chatId = null; state.attachments = [];
+  renderAttachments();
+  el('msgs-inner').innerHTML = el('empty') ? el('msgs-inner').innerHTML : '';
+  el('msgs-inner').innerHTML = '<div class="empty" id="empty"><h2>What are we recreating today?</h2><p>Upload viral slideshow images and describe the transformation -- remove text, swap the model, change the room, keep the product. Use Slideshow mode to recreate a full sequence slide by slide.</p></div>';
+  navigate('chat'); loadChats();
+}
+async function openChat(id){
+  state.chatId = id;
+  navigate('chat');
+  const { data } = await sb.from('gen_messages').select('*').eq('chat_id', id).order('created_at',{ascending:true});
+  el('msgs-inner').innerHTML = '';
+  (data||[]).forEach(m=>renderMessage(m.role, m.content, m.images||[]));
+  scrollBottom(); loadChats();
+}
+async function delChat(id){
+  if (!confirm('Delete this chat? (Library images are kept)')) return;
+  await sb.from('gen_chats').delete().eq('id', id);
+  if (state.chatId===id) newChat(); else loadChats();
+}
+async function ensureChat(firstText){
+  if (state.chatId) return state.chatId;
+  const title = (firstText||'New chat').slice(0,42);
+  const { data, error } = await sb.from('gen_chats').insert({ title }).select().single();
+  if (error) throw new Error('Could not create chat: '+error.message);
+  state.chatId = data.id; loadChats();
+  return data.id;
+}
+
+// ---------------- RENDER ----------------
+function scrollBottom(){ const m = el('msgs'); m.scrollTop = m.scrollHeight; }
+function clearEmpty(){ const e = el('empty'); if (e) e.remove(); }
+function renderMessage(role, content, images){
+  clearEmpty();
+  const d = document.createElement('div');
+  d.className = 'msg '+role;
+  let html = '';
+  if (content) html += '<div class="bubble">'+esc(content)+'</div>';
+  if (images && images.length){
+    if (role==='user'){
+      html += '<div class="refthumbs">'+images.map(im=>'<img src="'+im.url+'" onclick="openLightbox(\''+im.url+'\')">').join('')+'</div>';
+    } else {
+      html += '<div class="imggrid">'+images.map(im=>
+        '<div class="imgcard"><img src="'+im.url+'" onclick="openLightbox(\''+im.url+'\')">'+
+        '<button class="dl" onclick="dlImg(\''+im.url+'\')">Download</button></div>').join('')+'</div>';
+    }
+  }
+  d.innerHTML = html;
+  el('msgs-inner').appendChild(d);
+  scrollBottom();
+  return d;
+}
+function renderStatus(text){
+  clearEmpty();
+  const d = document.createElement('div');
+  d.className = 'msg assistant';
+  d.innerHTML = '<div class="genstatus"><span class="spinner"></span><span class="statustxt">'+esc(text)+'</span></div>';
+  el('msgs-inner').appendChild(d); scrollBottom();
+  return d;
+}
+
+// ---------------- ATTACHMENTS ----------------
+function onAttach(input){
+  const files = Array.from(input.files||[]);
+  files.forEach(f=>{
+    const r = new FileReader();
+    r.onload = e => { state.attachments.push({ dataUrl:e.target.result, name:f.name }); renderAttachments(); };
+    r.readAsDataURL(f);
+  });
+  input.value='';
+}
+function removeAtt(i){ state.attachments.splice(i,1); renderAttachments(); }
+function renderAttachments(){
+  const row = el('attrow');
+  if (!state.attachments.length){ row.style.display='none'; row.innerHTML=''; return; }
+  row.style.display='flex';
+  row.innerHTML = state.attachments.map((a,i)=>
+    '<div class="attchip"><img src="'+a.dataUrl+'"><button class="x" onclick="removeAtt('+i+')">x</button></div>').join('');
+}
+
+// ---------------- OPENAI ----------------
+function apiKey(){
+  const k = (settings().key||'').trim();
+  if (!k){ toast('Add your OpenAI API key in Settings first'); navigate('settings'); throw new Error('no key'); }
+  return k;
+}
+async function openaiEdits(prompt, dataUrls, n){
+  const s = settings();
+  const fd = new FormData();
+  fd.append('model','gpt-image-1');
+  fd.append('prompt', prompt);
+  fd.append('n', String(n));
+  fd.append('size', s.size||'1024x1536');
+  fd.append('quality', s.quality||'high');
+  for (let i=0;i<dataUrls.length;i++){
+    const b = await dataUrlToBlob(dataUrls[i]);
+    fd.append('image[]', b, 'ref'+i+'.png');
+  }
+  const r = await fetch('https://api.openai.com/v1/images/edits', {
+    method:'POST', headers:{ 'Authorization':'Bearer '+apiKey() }, body: fd
+  });
+  const j = await r.json();
+  if (j.error) throw new Error(j.error.message||'OpenAI error');
+  return (j.data||[]).map(d=>d.b64_json);
+}
+async function openaiGenerations(prompt, n){
+  const s = settings();
+  const r = await fetch('https://api.openai.com/v1/images/generations', {
+    method:'POST',
+    headers:{ 'Authorization':'Bearer '+apiKey(), 'Content-Type':'application/json' },
+    body: JSON.stringify({ model:'gpt-image-1', prompt:prompt, n:n, size:s.size||'1024x1536', quality:s.quality||'high' })
+  });
+  const j = await r.json();
+  if (j.error) throw new Error(j.error.message||'OpenAI error');
+  return (j.data||[]).map(d=>d.b64_json);
+}
+async function openaiChat(historyMsgs){
+  const r = await fetch('https://api.openai.com/v1/chat/completions', {
+    method:'POST',
+    headers:{ 'Authorization':'Bearer '+apiKey(), 'Content-Type':'application/json' },
+    body: JSON.stringify({ model:'gpt-4o', messages: historyMsgs })
+  });
+  const j = await r.json();
+  if (j.error) throw new Error(j.error.message||'OpenAI error');
+  return j.choices[0].message.content;
+}
+
+// ---------------- SEND ----------------
+async function send(){
+  const input = el('input');
+  const text = input.value.trim();
+  const atts = state.attachments.slice();
+  if (!text && !atts.length) return;
+  const btn = el('sendbtn'); btn.disabled = true;
+  try {
+    apiKey(); // early check
+    const chatId = await ensureChat(text || 'Image generation');
+    input.value=''; autosize(input);
+    state.attachments = []; renderAttachments();
+
+    // upload reference images so chat history keeps them
+    let refImgs = [];
+    for (let i=0;i<atts.length;i++){
+      const blob = await dataUrlToBlob(atts[i].dataUrl);
+      const url = await uploadBlob('refs/'+uuid()+'.png', blob);
+      refImgs.push({ url });
+    }
+    renderMessage('user', text, refImgs);
+    await sb.from('gen_messages').insert({ chat_id:chatId, role:'user', content:text, images:refImgs });
+
+    if (state.mode==='chat'){
+      await runChat(chatId, text, atts);
+    } else {
+      await runGenerate(chatId, text, atts);
+    }
+  } catch(e){
+    if (e.message!=='no key'){
+      const d = document.createElement('div');
+      d.className='msg assistant';
+      d.innerHTML = '<div class="errtxt">Error: '+esc(e.message)+'</div>';
+      el('msgs-inner').appendChild(d); scrollBottom();
+    }
+  }
+  btn.disabled = false;
+}
+
+async function runChat(chatId, text, atts){
+  const status = renderStatus('Thinking...');
+  try {
+    const { data } = await sb.from('gen_messages').select('*').eq('chat_id', chatId).order('created_at',{ascending:true}).limit(30);
+    const msgs = [{ role:'system', content:'You are SlideGen, an assistant helping a TikTok Shop affiliate team plan and create viral product slideshows. Be concise and practical.' }];
+    (data||[]).forEach(m=>{
+      if (m.role==='user' || m.role==='assistant'){
+        msgs.push({ role:m.role, content:(m.content||'(images)') });
+      }
+    });
+    // attach current images to last user message for vision
+    if (atts.length){
+      const last = msgs[msgs.length-1];
+      last.content = [{ type:'text', text: text||'Look at these images.' }]
+        .concat(atts.map(a=>({ type:'image_url', image_url:{ url:a.dataUrl } })));
+    }
+    const reply = await openaiChat(msgs);
+    status.remove();
+    renderMessage('assistant', reply, []);
+    await sb.from('gen_messages').insert({ chat_id:chatId, role:'assistant', content:reply, images:[] });
+  } catch(e){ status.remove(); throw e; }
+}
+
+async function runGenerate(chatId, text, atts){
+  const n = parseInt(el('varcount').value)||1;
+  const slideshowMode = el('slideshow').checked && atts.length>0;
+  const prompt = text || PRESETS.clean;
+  const status = renderStatus('Generating...');
+  const st = status.querySelector('.statustxt');
+  const allSaved = [];
+  try {
+    if (slideshowMode){
+      const group = uuid();
+      for (let i=0;i<atts.length;i++){
+        st.textContent = 'Slide '+(i+1)+' of '+atts.length+' -- generating '+n+' variation'+(n>1?'s':'')+'...';
+        const b64s = await openaiEdits(prompt + ' (This is slide '+(i+1)+' of a '+atts.length+'-slide TikTok slideshow -- keep the style consistent across slides.)', [atts[i].dataUrl], n);
+        for (let k=0;k<b64s.length;k++){
+          st.textContent = 'Slide '+(i+1)+' of '+atts.length+' -- saving image '+(k+1)+'...';
+          allSaved.push(await saveGenerated(b64s[k], prompt, chatId, group, i+1));
+        }
+      }
+    } else if (atts.length){
+      st.textContent = 'Generating '+n+' variation'+(n>1?'s':'')+'...';
+      const b64s = await openaiEdits(prompt, atts.map(a=>a.dataUrl), n);
+      for (let k=0;k<b64s.length;k++){
+        st.textContent = 'Saving image '+(k+1)+' of '+b64s.length+'...';
+        allSaved.push(await saveGenerated(b64s[k], prompt, chatId, null, null));
+      }
+    } else {
+      st.textContent = 'Generating '+n+' image'+(n>1?'s':'')+' from prompt...';
+      const b64s = await openaiGenerations(prompt, n);
+      for (let k=0;k<b64s.length;k++){
+        st.textContent = 'Saving image '+(k+1)+' of '+b64s.length+'...';
+        allSaved.push(await saveGenerated(b64s[k], prompt, chatId, null, null));
+      }
+    }
+    status.remove();
+    const summary = allSaved.length+' image'+(allSaved.length>1?'s':'')+' generated'+(slideshowMode?' ('+atts.length+'-slide slideshow)':'')+' -- saved to Library.';
+    renderMessage('assistant', summary, allSaved);
+    await sb.from('gen_messages').insert({ chat_id:chatId, role:'assistant', content:summary, images:allSaved });
+  } catch(e){ status.remove(); throw e; }
+}
+
+async function saveGenerated(b64, prompt, chatId, group, slideIndex){
+  const blob = await dataUrlToBlob('data:image/png;base64,'+b64);
+  const id = uuid();
+  const path = 'gen/'+id+'.png';
+  const url = await uploadBlob(path, blob);
+  await sb.from('gen_images').insert({
+    id, storage_path:path, url, prompt, chat_id:chatId,
+    slideshow_group:group, slide_index:slideIndex
+  });
+  return { url, id };
+}
+
+// ---------------- LIBRARY ----------------
+function debounceLib(){
+  clearTimeout(state.libDebounce);
+  state.libDebounce = setTimeout(loadLibrary, 350);
+}
+async function loadTags(){
+  const { data } = await sb.from('gen_tags').select('*').order('name');
+  state.tags = data||[];
+  const prodOpts = state.tags.filter(t=>t.kind==='product');
+  const fmtOpts = state.tags.filter(t=>t.kind==='format');
+  const fp = el('f-product'), ff = el('f-format');
+  const fpv = fp.value, ffv = ff.value;
+  fp.innerHTML = '<option value="">All products</option>'+prodOpts.map(t=>'<option value="'+t.id+'">'+esc(t.name)+'</option>').join('');
+  ff.innerHTML = '<option value="">All formats</option>'+fmtOpts.map(t=>'<option value="'+t.id+'">'+esc(t.name)+'</option>').join('');
+  fp.value = fpv; ff.value = ffv;
+}
+async function addTag(kind){
+  const name = prompt('New '+kind+' tag name:');
+  if (!name || !name.trim()) return;
+  const { error } = await sb.from('gen_tags').insert({ kind, name:name.trim() });
+  if (error) toast('Could not add tag: '+error.message);
+  else { toast('Tag added'); await loadTags(); loadLibrary(); }
+}
+async function loadLibrary(){
+  await loadTags();
+  let q = sb.from('gen_images').select('*').order('created_at',{ascending:false}).limit(300);
+  if (el('f-product').value) q = q.eq('product_tag', el('f-product').value);
+  if (el('f-format').value) q = q.eq('format_tag', el('f-format').value);
+  if (state.groupFilter) q = q.eq('slideshow_group', state.groupFilter).order('slide_index',{ascending:true});
+  const search = el('f-search').value.trim();
+  if (search) q = q.ilike('prompt', '%'+search+'%');
+  const { data } = await q;
+  el('groupfilterbtn').style.display = state.groupFilter ? '' : 'none';
+  el('dlallbtn').style.display = state.groupFilter ? '' : 'none';
+  const grid = el('libgrid'); grid.innerHTML='';
+  const prodOpts = state.tags.filter(t=>t.kind==='product');
+  const fmtOpts = state.tags.filter(t=>t.kind==='format');
+  (data||[]).forEach(img=>{
+    const c = document.createElement('div');
+    c.className='libcard';
+    const badge = img.slideshow_group
+      ? '<span class="groupbadge" onclick="filterGroup(\''+img.slideshow_group+'\')">Slideshow -- slide '+(img.slide_index||'?')+'</span>' : '';
+    c.innerHTML =
+      '<div class="imgwrap">'+badge+'<img src="'+img.url+'" onclick="openLightbox(\''+img.url+'\')"></div>'+
+      '<div class="libmeta">'+
+        '<div class="prompt" title="'+esc(img.prompt)+'">'+esc(img.prompt||'(no prompt)')+'</div>'+
+        '<select onchange="setImgTag(\''+img.id+'\',\'product_tag\',this.value)">'+
+          '<option value="">Product tag...</option>'+
+          prodOpts.map(t=>'<option value="'+t.id+'"'+(img.product_tag===t.id?' selected':'')+'>'+esc(t.name)+'</option>').join('')+
+        '</select>'+
+        '<select onchange="setImgTag(\''+img.id+'\',\'format_tag\',this.value)">'+
+          '<option value="">Format tag...</option>'+
+          fmtOpts.map(t=>'<option value="'+t.id+'"'+(img.format_tag===t.id?' selected':'')+'>'+esc(t.name)+'</option>').join('')+
+        '</select>'+
+        '<div class="librow">'+
+          '<button onclick="dlImg(\''+img.url+'\')">Download</button>'+
+          '<button class="danger" onclick="delImg(\''+img.id+'\',\''+img.storage_path+'\')">Delete</button>'+
+        '</div>'+
+      '</div>';
+    grid.appendChild(c);
+  });
+  if (!(data||[]).length) grid.innerHTML = '<div style="color:var(--muted);font-size:14px;">No images yet. Generate some in Chat and they will appear here.</div>';
+}
+function filterGroup(g){ state.groupFilter = g; loadLibrary(); }
+function clearGroupFilter(){ state.groupFilter = null; loadLibrary(); }
+async function setImgTag(id, col, val){
+  const upd = {}; upd[col] = val||null;
+  const { error } = await sb.from('gen_images').update(upd).eq('id', id);
+  if (error) toast('Tag update failed'); else toast('Tagged');
+}
+async function delImg(id, path){
+  if (!confirm('Delete this image permanently?')) return;
+  await sb.storage.from(BUCKET).remove([path]);
+  await sb.from('gen_images').delete().eq('id', id);
+  loadLibrary();
+}
+async function dlImg(url, name){
+  try {
+    const blob = await (await fetch(url)).blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name || ('slidegen-'+url.split('/').pop());
+    a.click(); URL.revokeObjectURL(a.href);
+  } catch(e){ window.open(url,'_blank'); }
+}
+async function dlGroup(){
+  if (!state.groupFilter) return;
+  const { data } = await sb.from('gen_images').select('*').eq('slideshow_group', state.groupFilter).order('slide_index');
+  for (let i=0;i<(data||[]).length;i++){
+    await dlImg(data[i].url, 'slide-'+(data[i].slide_index||i+1)+'-'+data[i].id.slice(0,6)+'.png');
+    await new Promise(r=>setTimeout(r,400));
+  }
+  toast('Downloaded '+(data||[]).length+' slides');
+}
+
+// ---------------- SETTINGS ----------------
+function loadSettingsForm(){
+  const s = settings();
+  el('s-key').value = s.key||'';
+  el('s-size').value = s.size||'1024x1536';
+  el('s-quality').value = s.quality||'high';
+}
+function saveSettings(){
+  const s = {
+    key: el('s-key').value.trim(),
+    size: el('s-size').value,
+    quality: el('s-quality').value
+  };
+  localStorage.setItem('sg_settings', JSON.stringify(s));
+  toast('Settings saved');
+}
+
+// ---------------- INIT ----------------
+function init(){
+  loadChats();
+  if (!(settings().key)){ /* first run: nudge to settings */ }
+}
+init();
+
+Object.assign(window, {
+  navigate, setMode, applyPreset, composerKey, autosize,
+  newChat, openChat, delChat, send,
+  onAttach, removeAtt,
+  loadLibrary, debounceLib, addTag, filterGroup, clearGroupFilter,
+  setImgTag, delImg, dlImg, dlGroup,
+  saveSettings, openLightbox, toast
+});
+</script>
+<script>
+// Bootstrap: execute app script with explicit window context
+(new Function(document.getElementById('app-script').textContent)).call(window);
+</script>
+</body>
+</html>
