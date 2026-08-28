@@ -71,6 +71,8 @@
   .attchip img{height:56px; border-radius:8px; border:1px solid var(--border); display:block;}
   .attchip .x{position:absolute; top:-6px; right:-6px; background:#333; color:#fff; border:none; border-radius:50%; width:18px; height:18px; font-size:11px; cursor:pointer; line-height:1;}
   .composer textarea{width:100%; border:none; outline:none; resize:none; font-size:14.5px; font-family:inherit; background:transparent; min-height:44px; max-height:180px; line-height:1.5;}
+  .captioninput{width:100%; border:1px dashed var(--border); border-radius:9px; padding:7px 10px; font-size:13px; font-family:inherit; background:var(--bg); color:var(--text); margin-bottom:8px; outline:none;}
+  .captioninput:focus{border-color:var(--accent); border-style:solid;}
   .ctrls{display:flex; align-items:center; gap:8px; margin-top:6px; flex-wrap:wrap;}
   .ctrls .grow{flex:1;}
   .iconbtn{background:none; border:1px solid var(--border); border-radius:9px; padding:6px 11px; font-size:13px; cursor:pointer; color:var(--text);}
@@ -141,12 +143,13 @@
       <div class="msgs" id="msgs"><div class="msgs-inner" id="msgs-inner">
         <div class="empty" id="empty">
           <h2>What are we recreating today?</h2>
-          <p>Upload viral slideshow images and describe the transformation -- remove text, swap the model, change the room, keep the product. Use Slideshow mode to recreate a full sequence slide by slide.</p>
+          <p>Upload viral slideshow images and describe the transformation -- swap the model, change the room, keep the product and its logo exact. The on-screen text stays identical unless you type new wording in the caption box. Use Slideshow mode to recreate a full sequence slide by slide.</p>
         </div>
       </div></div>
       <div class="composer-wrap">
         <div class="composer">
           <div class="attrow" id="attrow" style="display:none;"></div>
+          <input id="caption" class="captioninput" placeholder='New caption wording (optional) -- leave blank to keep the original on-screen text exactly as it is'>
           <textarea id="input" placeholder="Describe the images you want... (Enter to send, Shift+Enter for new line)" onkeydown="composerKey(event)" oninput="autosize(this)"></textarea>
           <div class="ctrls">
             <button class="iconbtn" onclick="document.getElementById('file').click()">+ Images</button>
@@ -156,7 +159,7 @@
               <option value="clean">Clean recreate (new model + background)</option>
               <option value="flatlay">Flat-lay product photo</option>
               <option value="lifestyle">Lifestyle scenario</option>
-              <option value="notext">Just remove the text</option>
+              <option value="samescene">Same scene, new model + background</option>
             </select>
             <span class="grow"></span>
             <div class="modetoggle">
@@ -259,11 +262,21 @@ let state = {
 };
 
 const PRESETS = {
-  clean: 'Recreate this image with absolutely no text, captions or watermarks. Keep the exact same product, but put it on a different model and in a completely different background/setting. Think about who would realistically buy and wear/use this product and use that kind of person as the model. Natural, casual phone-photo aesthetic like a real TikTok post -- not a studio shoot.',
-  flatlay: 'Create a clean flat-lay style photo of this exact same product, no text or captions, placed naturally in a new aesthetic setting (e.g. on a bed, desk or countertop with soft lighting). Casual phone-photo look, not studio.',
-  lifestyle: 'Recreate this image with no text. Same exact product, but show it being used in a realistic everyday scenario by a different person in a different location. Get creative with the scenario but keep it believable and native to TikTok.',
-  notext: 'Recreate this exact image but remove all text, captions and watermarks completely. Keep everything else -- product, model, background and composition -- as close to the original as possible.'
+  clean: 'Recreate this image keeping the exact same product, but put it on a different model and in a completely different background/setting. Think about who would realistically buy and wear/use this product and use that kind of person as the model. Natural, casual phone-photo aesthetic like a real TikTok post -- not a studio shoot.',
+  flatlay: 'Create a clean flat-lay style photo of this exact same product, placed naturally in a new aesthetic setting (e.g. on a bed, desk or countertop with soft lighting). Casual phone-photo look, not studio.',
+  lifestyle: 'Recreate this image with the same exact product, but show it being used in a realistic everyday scenario by a different person in a different location. Get creative with the scenario but keep it believable and native to TikTok.',
+  samescene: 'Recreate this exact image with a different model and a different background, keeping the product, composition and overall vibe as close to the original as possible.'
 };
+
+const PRODUCT_RULE = ' PRODUCT ACCURACY (critical): The product must be reproduced with 100 percent accuracy -- the exact same brand logo (identical shape, lettering, size and placement), identical colours, materials, stitching, zips, tags and labels. Never invent, redraw, replace, restyle or approximate any logo or branding -- copy it exactly as it appears in the reference image.';
+
+function textRule(){
+  const cap = el('caption').value.trim();
+  if (cap){
+    return ' ON-SCREEN TEXT (critical): Replace the wording of the on-screen caption with exactly: "' + cap + '". Everything else about the text must stay identical to the original -- same font, size, weight, colour, outline/shadow, line breaks style and position. Only the words change.';
+  }
+  return ' ON-SCREEN TEXT (critical): Keep the on-screen caption text exactly as it appears in the original image -- same wording, same font, size, weight, colour, outline/shadow and position. Do not remove, move or restyle it.';
+}
 
 function settings(){
   try { return JSON.parse(localStorage.getItem('sg_settings')||'{}'); } catch(e){ return {}; }
@@ -325,7 +338,7 @@ function newChat(){
   state.chatId = null; state.attachments = [];
   renderAttachments();
   el('msgs-inner').innerHTML = el('empty') ? el('msgs-inner').innerHTML : '';
-  el('msgs-inner').innerHTML = '<div class="empty" id="empty"><h2>What are we recreating today?</h2><p>Upload viral slideshow images and describe the transformation -- remove text, swap the model, change the room, keep the product. Use Slideshow mode to recreate a full sequence slide by slide.</p></div>';
+  el('msgs-inner').innerHTML = '<div class="empty" id="empty"><h2>What are we recreating today?</h2><p>Upload viral slideshow images and describe the transformation -- swap the model, change the room, keep the product and its logo exact. The on-screen text stays identical unless you type new wording in the caption box. Use Slideshow mode to recreate a full sequence slide by slide.</p></div>';
   navigate('chat'); loadChats();
 }
 async function openChat(id){
@@ -514,6 +527,9 @@ async function runGenerate(chatId, text, atts){
   const n = parseInt(el('varcount').value)||1;
   const slideshowMode = el('slideshow').checked && atts.length>0;
   const prompt = text || PRESETS.clean;
+  const cap = el('caption').value.trim();
+  const fullPrompt = atts.length ? prompt + PRODUCT_RULE + textRule() : prompt;
+  const libPrompt = prompt + (cap ? ' [new caption: ' + cap + ']' : '');
   const status = renderStatus('Generating...');
   const st = status.querySelector('.statustxt');
   const allSaved = [];
@@ -522,25 +538,25 @@ async function runGenerate(chatId, text, atts){
       const group = uuid();
       for (let i=0;i<atts.length;i++){
         st.textContent = 'Slide '+(i+1)+' of '+atts.length+' -- generating '+n+' variation'+(n>1?'s':'')+'...';
-        const b64s = await openaiEdits(prompt + ' (This is slide '+(i+1)+' of a '+atts.length+'-slide TikTok slideshow -- keep the style consistent across slides.)', [atts[i].dataUrl], n);
+        const b64s = await openaiEdits(fullPrompt + ' (This is slide '+(i+1)+' of a '+atts.length+'-slide TikTok slideshow -- keep the style consistent across slides.)', [atts[i].dataUrl], n);
         for (let k=0;k<b64s.length;k++){
           st.textContent = 'Slide '+(i+1)+' of '+atts.length+' -- saving image '+(k+1)+'...';
-          allSaved.push(await saveGenerated(b64s[k], prompt, chatId, group, i+1));
+          allSaved.push(await saveGenerated(b64s[k], libPrompt, chatId, group, i+1));
         }
       }
     } else if (atts.length){
       st.textContent = 'Generating '+n+' variation'+(n>1?'s':'')+'...';
-      const b64s = await openaiEdits(prompt, atts.map(a=>a.dataUrl), n);
+      const b64s = await openaiEdits(fullPrompt, atts.map(a=>a.dataUrl), n);
       for (let k=0;k<b64s.length;k++){
         st.textContent = 'Saving image '+(k+1)+' of '+b64s.length+'...';
-        allSaved.push(await saveGenerated(b64s[k], prompt, chatId, null, null));
+        allSaved.push(await saveGenerated(b64s[k], libPrompt, chatId, null, null));
       }
     } else {
       st.textContent = 'Generating '+n+' image'+(n>1?'s':'')+' from prompt...';
       const b64s = await openaiGenerations(prompt, n);
       for (let k=0;k<b64s.length;k++){
         st.textContent = 'Saving image '+(k+1)+' of '+b64s.length+'...';
-        allSaved.push(await saveGenerated(b64s[k], prompt, chatId, null, null));
+        allSaved.push(await saveGenerated(b64s[k], libPrompt, chatId, null, null));
       }
     }
     status.remove();
